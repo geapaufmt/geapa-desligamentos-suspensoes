@@ -1,10 +1,8 @@
 function off_installTriggers() {
   const reg = GEAPA_CORE.coreGetRegistry();
-  const ref = reg.OFFBOARD;
-
+  const ref = reg.OFFBOARD_RESPONSES;
   if (!ref?.id) throw new Error("Registry OFFBOARD.id está vazio no GEAPA_CORE.");
 
-  // Remove triggers antigos desse módulo
   ScriptApp.getProjectTriggers().forEach(t => {
     const fn = t.getHandlerFunction();
     if (fn === "off_handleFormSubmit" || fn === "off_handleEdit") {

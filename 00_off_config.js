@@ -8,7 +8,7 @@
 
 const OFF_KEYS = Object.freeze({
   RESPONSES: 'OFFBOARD_RESPONSES',   // planilha de respostas do Forms
-  MEMBERS:   'MEMBERS_ATUAIS',       // base de membros (para achar secretários)
+  MEMBERS:   'VIGENCIA_MEMBROS_DIRETORIAS',       // base de membros da diretoria (para achar secretários)
 });
 
 const OFF_CFG = Object.freeze({
