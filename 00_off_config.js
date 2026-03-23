@@ -8,7 +8,7 @@
 
 const OFF_KEYS = Object.freeze({
   RESPONSES: 'OFFBOARD_RESPONSES',   // planilha de respostas do Forms
-  MEMBERS:   'VIGENCIA_MEMBROS_DIRETORIAS',       // base de membros da diretoria (para achar secretários)
+  MEMBERS: 'OFFBOARD_MEMBERS',       // planilha de membros (pode ser a mesma do core)
 });
 
 const OFF_CFG = Object.freeze({
@@ -37,16 +37,6 @@ const OFF_CFG = Object.freeze({
     DECISAO_DEFERIDO: 'DEFERIDO',
     TYPE_OFFBOARD: 'Desligamento',
     TYPE_SUSPEND: 'Suspensão',
-  }),
-
-  // Como identificar secretários na base de membros
-  MEMBERS: Object.freeze({
-    COL_ROLE: 'Cargo/função atual',
-    COL_EMAIL: 'EMAIL',
-    SECRETARY_ROLES: [
-      'Secretário(a) Executivo(a)',
-      'Secretário(a) Geral',
-    ],
   }),
 
   EMAIL: Object.freeze({
