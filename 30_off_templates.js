@@ -81,30 +81,6 @@ function off_notifySecretaries_(secretaryEmails, req) {
   });
 }
 
-function off_sendFinalEmailToMember_(req) {
-  if (!GEAPA_CORE.coreIsValidEmail(req.email)) return;
-
-  const isOff = String(req.tipo || '').trim() === OFF_CFG.VALUES.TYPE_OFFBOARD;
-  const subject = isOff ? OFF_CFG.EMAIL.FINAL_SUBJECT_OFFBOARD : OFF_CFG.EMAIL.FINAL_SUBJECT_SUSPEND;
-
-  const htmlBody = `
-    <div style="font-family:Arial,sans-serif;">
-      <h2>${isOff ? 'Desligamento confirmado' : 'Suspensão confirmada'}</h2>
-      <p>Olá, <b>${off_firstName_(req.nome)}</b>.</p>
-      <p>Confirmamos o processamento do seu pedido no GEAPA.</p>
-      <p><b>Tipo:</b> ${off_safe_(req.tipo)}</p>
-      <hr>
-      <p>Atenciosamente,<br>GEAPA</p>
-    </div>
-  `;
-
-  GEAPA_CORE.coreSendHtmlEmail({
-    to: req.email,
-    subject,
-    htmlBody,
-  });
-}
-
 function off_firstName_(full) {
   const s = String(full || '').trim();
   return s ? s.split(/\s+/)[0] : '';
@@ -117,7 +93,18 @@ function off_safe_(s) {
 function offboard_getHeaderMap_(headers) {
   const map = {};
   headers.forEach((h, i) => {
-    map[String(h || "").trim().toLowerCase()] = i;
+    map[GEAPA_CORE.coreNormalizeHeader(String(h || "").trim())] = i;
   });
   return map;
+}
+
+function offboard_findHeaderIndex_(map, candidates) {
+  const list = Array.isArray(candidates) ? candidates : [candidates];
+  for (let i = 0; i < list.length; i++) {
+    const key = GEAPA_CORE.coreNormalizeHeader(String(list[i] || "").trim());
+    if (Object.prototype.hasOwnProperty.call(map, key)) {
+      return map[key];
+    }
+  }
+  return -1;
 }

@@ -64,14 +64,19 @@ function off_finalizeDeferredRequest_(sh, sheetRow) {
     const map = offboard_getHeaderMap_(headers);
     const row = sh.getRange(sheetRow, 1, 1, lastCol).getValues()[0];
 
-    const tipo = String(row[map["quero solicitar:"]] || "").trim();
-    const nome = String(row[map["nome completo"]] || "").trim();
-    const rga = String(row[map["rga"]] || "").trim();
-    const email = String(row[map["endereço de e-mail"]] || "").trim();
-    const leaveTiming = String(row[map["desejo me desligar:"]] || "").trim();
-    const approved = String(row[map["decisão da diretoria"]] || "").trim().toUpperCase();
-    const sentFinal = String(row[map["e-mail de desligamento enviado?"]] || "").trim().toUpperCase();
-    const membersProcessed = String(row[map["integração membros processada?"]] || "").trim().toUpperCase();
+    function getCell_(candidates) {
+      const idx = offboard_findHeaderIndex_(map, candidates);
+      return idx >= 0 ? row[idx] : "";
+    }
+
+    const tipo = String(getCell_([OFF_CFG.RESP.TYPE, "Quero solicitar:"]) || "").trim();
+    const nome = String(getCell_([OFF_CFG.RESP.NAME, "Nome Completo"]) || "").trim();
+    const rga = String(getCell_([OFF_CFG.RESP.RGA, "RGA"]) || "").trim();
+    const email = String(getCell_([OFF_CFG.RESP.EMAIL, "Endere�o de e-mail", "Endereco de e-mail", "E-mail", "Email"]) || "").trim();
+    const leaveTiming = String(getCell_(["Desejo me desligar:"]) || "").trim();
+    const approved = String(getCell_([OFF_CFG.RESP.APPROVED, "Decis�o da Diretoria"]) || "").trim().toUpperCase();
+    const sentFinal = String(getCell_([OFF_CFG.RESP.SENT_FINAL, "E-mail de desligamento enviado?"]) || "").trim().toUpperCase();
+    const membersProcessed = String(getCell_(["Integra��o membros processada?", "Integracao membros processada?"]) || "").trim().toUpperCase();
 
     if (tipo !== "Desligamento") return;
     if (leaveTiming !== "Imediatamente") return;
@@ -83,17 +88,19 @@ function off_finalizeDeferredRequest_(sh, sheetRow) {
     if (sentFinal !== "SIM") {
       off_sendFinalEmailToMember_({ tipo, nome, rga, email });
 
-      if (map["e-mail de desligamento enviado?"] != null) {
-        sh.getRange(sheetRow, map["e-mail de desligamento enviado?"] + 1).setValue("SIM");
+      const sentFinalCol = offboard_findHeaderIndex_(map, [OFF_CFG.RESP.SENT_FINAL, "E-mail de desligamento enviado?"]);
+      if (sentFinalCol >= 0) {
+        sh.getRange(sheetRow, sentFinalCol + 1).setValue("SIM");
       }
 
-      if (map["data/hora do deferimento"] != null) {
-        sh.getRange(sheetRow, map["data/hora do deferimento"] + 1).setValue(now);
+      const deferCell = offboard_findHeaderIndex_(map, [OFF_CFG.RESP.DEFER_DATE, "Data/Hora do deferimento"]);
+      if (deferCell >= 0) {
+        sh.getRange(sheetRow, deferCell + 1).setValue(now);
       }
     } else {
       // Se já estava como enviado, garante pelo menos a data se estiver vazia
-      const deferCell = map["data/hora do deferimento"];
-      if (deferCell != null) {
+      const deferCell = offboard_findHeaderIndex_(map, [OFF_CFG.RESP.DEFER_DATE, "Data/Hora do deferimento"]);
+      if (deferCell >= 0) {
         const currentDeferDate = sh.getRange(sheetRow, deferCell + 1).getValue();
         if (!currentDeferDate) {
           sh.getRange(sheetRow, deferCell + 1).setValue(now);
@@ -126,8 +133,8 @@ function off_onEditDecision(e) {
     const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || "").trim());
     const map = offboard_getHeaderMap_(headers);
 
-    const cDecision = map["decisão da diretoria"];
-    if (cDecision == null) return;
+    const cDecision = offboard_findHeaderIndex_(map, [OFF_CFG.RESP.APPROVED, "Decis�o da Diretoria"]);
+    if (cDecision < 0) return;
 
     // só reage se a célula editada for a coluna "Decisão da Diretoria"
     if (e.range.getColumn() !== cDecision + 1) return;
@@ -147,32 +154,32 @@ function buildOffFinalEmailHtml_(data) {
   const safeTipo = escapeOffHtml_(data.tipo || "Desligamento");
 
   return `
-    <div style="margin:0; padding:0; background:#f5f6f7; font-family:Arial, Helvetica, sans-serif; color:#1f1f1f;">
-      <div style="max-width:640px; margin:0 auto; padding:24px 16px;">
+    <div style="margin:0; padding:0; background:#f5f6f7; font-family:Arial, Helvetica, sans-serif; color:#1f1f1f; -webkit-text-size-adjust:100%; text-size-adjust:100%;">
+      <div style="max-width:640px; margin:0 auto; padding:16px 12px;">
         <div style="background:#ffffff; border-radius:18px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,0.08);">
 
-          <div style="padding:36px 36px 24px 36px;">
-            <div style="font-size:52px; font-weight:800; line-height:1.02; color:#000000; margin-bottom:28px;">
+          <div style="padding:28px 24px 20px 24px;">
+            <div style="font-size:26px; font-weight:800; line-height:1.15; color:#000000; margin-bottom:20px;">
               ${safeTipo}<br>confirmado
             </div>
 
-            <div style="font-size:24px; line-height:1.6; color:#222222;">
-              <p style="margin:0 0 22px 0;">Olá, <strong>${safeName}</strong>!</p>
+            <div style="font-size:16px; line-height:1.6; color:#222222;">
+              <p style="margin:0 0 18px 0;">Olá, <strong>${safeName}</strong>!</p>
 
-              <p style="margin:0 0 22px 0;">
+              <p style="margin:0 0 18px 0;">
                 Confirmamos que seu pedido de <strong>desligamento do GEAPA</strong> foi
                 analisado e <strong>DEFERIDO</strong>.
               </p>
 
-              <p style="margin:0 0 22px 0;">
+              <p style="margin:0 0 18px 0;">
                 A partir deste momento, seu vínculo com o grupo encontra-se oficialmente encerrado.
               </p>
 
-              <p style="margin:0 0 28px 0;">
+              <p style="margin:0 0 24px 0;">
                 Agradecemos sua participação e desejamos sucesso em sua trajetória acadêmica.
               </p>
 
-              <div style="border-top:1px solid #d9d9d9; padding-top:22px; margin-top:12px;">
+              <div style="border-top:1px solid #d9d9d9; padding-top:18px; margin-top:10px;">
                 <p style="margin:0;">
                   Atenciosamente,<br>
                   <strong>Diretoria do GEAPA</strong>
@@ -196,6 +203,8 @@ function escapeOffHtml_(text) {
 }
 
 function off_sendFinalEmailToMember_(data) {
+  if (!GEAPA_CORE.coreIsValidEmail(data.email)) return;
+
   const html = buildOffFinalEmailHtml_(data);
 
   MailApp.sendEmail({

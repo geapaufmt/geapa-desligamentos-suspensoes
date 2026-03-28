@@ -23,7 +23,7 @@ function off_processQueue() {
     const cType = GEAPA_CORE.coreGetCol(headerMap, OFF_CFG.RESP.TYPE);
     const cName = GEAPA_CORE.coreGetCol(headerMap, OFF_CFG.RESP.NAME);
     const cRga = GEAPA_CORE.coreGetCol(headerMap, OFF_CFG.RESP.RGA);
-    const cEmail = GEAPA_CORE.coreGetCol(headerMap, OFF_CFG.RESP.EMAIL);
+    const cEmail = GEAPA_CORE.coreGetCol(headerMap, OFF_CFG.RESP.EMAIL) || GEAPA_CORE.coreGetCol(headerMap, "E-mail") || GEAPA_CORE.coreGetCol(headerMap, "Email");
     const cNotified = GEAPA_CORE.coreGetCol(headerMap, OFF_CFG.RESP.NOTIFIED_SECS);
     const cApproved = GEAPA_CORE.coreGetCol(headerMap, OFF_CFG.RESP.APPROVED);
     const cSentFinal = GEAPA_CORE.coreGetCol(headerMap, OFF_CFG.RESP.SENT_FINAL);
