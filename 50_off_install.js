@@ -5,7 +5,7 @@ function off_installTriggers() {
 
   ScriptApp.getProjectTriggers().forEach(t => {
     const fn = t.getHandlerFunction();
-    if (fn === "off_handleFormSubmit" || fn === "off_handleEdit") {
+    if (fn === "off_handleFormSubmit" || fn === "off_handleEdit" || fn === "off_onEditDecision") {
       ScriptApp.deleteTrigger(t);
     }
   });
@@ -15,7 +15,7 @@ function off_installTriggers() {
     .onFormSubmit()
     .create();
 
-  ScriptApp.newTrigger("off_handleEdit")
+  ScriptApp.newTrigger("off_onEditDecision")
     .forSpreadsheet(ref.id)
     .onEdit()
     .create();

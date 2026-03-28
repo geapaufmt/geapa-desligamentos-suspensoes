@@ -19,11 +19,25 @@ function offboard_processMembersIntegration_(sheet, rowNumber) {
   const map = offboard_getHeaderMap_(headers);
   const row = sheet.getRange(rowNumber, 1, 1, lastCol).getValues()[0];
 
-  const requestType = String(row[map["quero solicitar:"]] || "").trim();
-  const leaveTiming = String(row[map["desejo me desligar:"]] || "").trim();
-  const decision = String(row[map["decisão da diretoria"]] || "").trim().toUpperCase();
-  const finalEmailSent = String(row[map["e-mail de desligamento enviado?"]] || "").trim().toUpperCase();
-  const alreadyProcessed = String(row[map["integração membros processada?"]] || "").trim().toUpperCase();
+  function getCell(candidates) {
+    const idx = offboard_findHeaderIndex_(map, candidates);
+    return idx >= 0 ? row[idx] : "";
+  }
+
+  function setCellIfPresent(candidates, value) {
+    const idx = offboard_findHeaderIndex_(map, candidates);
+    if (idx >= 0) {
+      sheet.getRange(rowNumber, idx + 1).setValue(value);
+      return true;
+    }
+    return false;
+  }
+
+  const requestType = String(getCell([OFF_CFG.RESP.TYPE, "Quero solicitar:"]) || "").trim();
+  const leaveTiming = String(getCell(["Desejo me desligar:"]) || "").trim();
+  const decision = String(getCell([OFF_CFG.RESP.APPROVED, "Decisao da Diretoria", "Decisão da Diretoria"]) || "").trim().toUpperCase();
+  const finalEmailSent = String(getCell([OFF_CFG.RESP.SENT_FINAL, "E-mail de desligamento enviado?"]) || "").trim().toUpperCase();
+  const alreadyProcessed = String(getCell(["Integracao membros processada?", "Integração membros processada?"]) || "").trim().toUpperCase();
 
   if (requestType !== "Desligamento") return;
   if (leaveTiming !== "Imediatamente") return;
@@ -34,32 +48,34 @@ function offboard_processMembersIntegration_(sheet, rowNumber) {
   try {
     const payload = {
       requestRowNumber: rowNumber,
-      requestTimestamp: row[map["carimbo de data/hora"]],
-      memberName: row[map["nome completo"]],
-      memberEmail: row[map["endereço de e-mail"]],
-      memberRga: row[map["rga"]],
-      requestType: row[map["quero solicitar:"]],
-      leaveTiming: row[map["desejo me desligar:"]],
-      reason: row[map["informe o motivo do pedido de desligamento:"]],
-      approvedAt: row[map["data/hora do deferimento"]],
-      decision: row[map["decisão da diretoria"]],
-      finalEmailSent: row[map["e-mail de desligamento enviado?"]]
+      requestTimestamp: getCell(["Carimbo de data/hora", "Timestamp"]),
+      memberName: getCell([OFF_CFG.RESP.NAME, "Nome Completo"]),
+      memberEmail: getCell([OFF_CFG.RESP.EMAIL, "Endereco de e-mail", "E-mail", "Email"]),
+      memberRga: getCell([OFF_CFG.RESP.RGA, "RGA"]),
+      requestType: getCell([OFF_CFG.RESP.TYPE, "Quero solicitar:"]),
+      leaveTiming: getCell(["Desejo me desligar:"]),
+      reason: getCell(["Informe o motivo do pedido de desligamento:"]),
+      approvedAt: getCell([OFF_CFG.RESP.DEFER_DATE, "Data/Hora do deferimento"]),
+      decision: getCell([OFF_CFG.RESP.APPROVED, "Decisao da Diretoria", "Decisão da Diretoria"]),
+      finalEmailSent: getCell([OFF_CFG.RESP.SENT_FINAL, "E-mail de desligamento enviado?"])
     };
 
     const result = GEAPA_MEMBROS.members_offboardApprovedImmediateExit(payload);
 
-    sheet.getRange(rowNumber, map["integração membros processada?"] + 1).setValue("SIM");
-    sheet.getRange(rowNumber, map["data/hora integração membros"] + 1).setValue(new Date());
-    sheet.getRange(rowNumber, map["mensagem integração membros"] + 1).setValue(
+    setCellIfPresent(["Integracao membros processada?", "Integração membros processada?"], "SIM");
+    setCellIfPresent(["Data/Hora integracao membros", "Data/Hora integração membros"], new Date());
+    setCellIfPresent(
+      ["Mensagem integracao membros", "Mensagem integração membros"],
       result.duplicatedHistory
         ? "Registro já existia em MEMBERS_HIST; membro removido de MEMBERS_ATUAIS."
         : "Membro movido com sucesso de MEMBERS_ATUAIS para MEMBERS_HIST."
     );
 
   } catch (err) {
-    sheet.getRange(rowNumber, map["integração membros processada?"] + 1).setValue("ERRO");
-    sheet.getRange(rowNumber, map["data/hora integração membros"] + 1).setValue(new Date());
-    sheet.getRange(rowNumber, map["mensagem integração membros"] + 1).setValue(
+    setCellIfPresent(["Integracao membros processada?", "Integração membros processada?"], "ERRO");
+    setCellIfPresent(["Data/Hora integracao membros", "Data/Hora integração membros"], new Date());
+    setCellIfPresent(
+      ["Mensagem integracao membros", "Mensagem integração membros"],
       String(err && err.message ? err.message : err)
     );
   }
