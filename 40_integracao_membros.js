@@ -13,6 +13,26 @@
  * - off_onEditDecision ao detectar edição para DEFERIDO
  ***************************************/
 
+function offboard_appendLifecycleEvent_(payload) {
+  if (!GEAPA_CORE || typeof GEAPA_CORE.coreAppendMemberLifecycleEvent !== 'function') {
+    return null;
+  }
+
+  return GEAPA_CORE.coreAppendMemberLifecycleEvent({
+    rga: payload.memberRga,
+    eventType: 'DESLIGAMENTO_VOLUNTARIO',
+    eventDate: payload.approvedAt,
+    eventStatus: 'HOMOLOGADO',
+    reason: payload.reason,
+    sourceModule: 'geapa-desligamentos-suspensoes',
+    sourceKey: OFF_KEYS.RESPONSES,
+    sourceRow: payload.requestRowNumber,
+    memberName: payload.memberName,
+    memberEmail: payload.memberEmail,
+    notes: 'Evento homologado a partir do formulario oficial de desligamento.'
+  });
+}
+
 function offboard_processMembersIntegration_(sheet, rowNumber) {
   const lastCol = sheet.getLastColumn();
   const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || "").trim());
@@ -61,14 +81,20 @@ function offboard_processMembersIntegration_(sheet, rowNumber) {
     };
 
     const result = GEAPA_MEMBROS.members_offboardApprovedImmediateExit(payload);
+    const lifecycleEvent = offboard_appendLifecycleEvent_(payload);
+    let integrationMessage = result.duplicatedHistory
+      ? "Registro já existia em MEMBERS_HIST; membro removido de MEMBERS_ATUAIS."
+      : "Membro movido com sucesso de MEMBERS_ATUAIS para MEMBERS_HIST.";
+
+    if (lifecycleEvent && lifecycleEvent.eventId) {
+      integrationMessage += " Evento de vínculo: " + lifecycleEvent.eventId + ".";
+    }
 
     setCellIfPresent(["Integracao membros processada?", "Integração membros processada?"], "SIM");
     setCellIfPresent(["Data/Hora integracao membros", "Data/Hora integração membros"], new Date());
     setCellIfPresent(
       ["Mensagem integracao membros", "Mensagem integração membros"],
-      result.duplicatedHistory
-        ? "Registro já existia em MEMBERS_HIST; membro removido de MEMBERS_ATUAIS."
-        : "Membro movido com sucesso de MEMBERS_ATUAIS para MEMBERS_HIST."
+      integrationMessage
     );
 
   } catch (err) {
