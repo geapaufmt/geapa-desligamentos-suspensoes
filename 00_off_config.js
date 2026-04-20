@@ -1,52 +1,239 @@
 /***************************************
  * 00_off_config.gs
- * MÓDULO: Desligamento & Suspensão (OFFBOARD)
- *
- * Este arquivo só guarda configuração.
- * Nada de abrir planilha nem enviar e-mail aqui.
+ * Configuracao, enums e contratos do modulo.
  ***************************************/
 
 const OFF_KEYS = Object.freeze({
-  RESPONSES: 'OFFBOARD_RESPONSES',   // planilha de respostas do Forms
-  MEMBERS: 'OFFBOARD_MEMBERS',       // planilha de membros (pode ser a mesma do core)
+  RESPONSES: 'OFFBOARD_RESPONSES',
+  MEMBERS: 'MEMBERS_ATUAIS',
+  QUEUE_SUSPENSIONS: 'OFFBOARD_QUEUE_SUSPENSIONS',
+  QUEUE_DISMISSALS: 'OFFBOARD_QUEUE_DISMISSALS',
+  MEMBER_EVENTS: 'MEMBER_EVENTOS_VINCULO',
+  ACTIVITIES_PRESENCAS: 'ATIVIDADES_PRESENCAS',
+  ACTIVITIES_PRESENTATIONS: 'ATIVIDADES_APRESENTACOES',
+});
+
+const OFF_SHEETS = Object.freeze({
+  SUSPENSIONS: 'PEDIDOS_SUSPENSAO',
+  DISMISSALS: 'PEDIDOS_DESLIGAMENTO',
+});
+
+const OFF_TYPES = Object.freeze({
+  SUSPENSAO: 'SUSPENSAO',
+  DESLIGAMENTO: 'DESLIGAMENTO',
+});
+
+const OFF_EXECUTION = Object.freeze({
+  TEMPORARIA: 'TEMPORARIA',
+  IMEDIATO: 'IMEDIATO',
+  FIM_SEMESTRE: 'FIM_SEMESTRE',
+});
+
+const OFF_STATUS = Object.freeze({
+  RECEBIDO: 'RECEBIDO',
+  VALIDADO: 'VALIDADO',
+  EM_ANALISE: 'EM_ANALISE',
+  DEFERIDO: 'DEFERIDO',
+  INDEFERIDO: 'INDEFERIDO',
+  AGUARDANDO_EXECUCAO: 'AGUARDANDO_EXECUCAO',
+  EXECUTADO: 'EXECUTADO',
+  CANCELADO: 'CANCELADO',
+  ERRO: 'ERRO',
 });
 
 const OFF_CFG = Object.freeze({
   TZ: 'America/Cuiaba',
+  HEADER_ROW: 1,
+  DAILY_TRIGGER_HOUR: 5,
+  SOURCE_MODULE: 'geapa-desligamentos-suspensoes',
+  MIN_SUSPENSION_DAYS: 30,
 
-  // Cabeçalhos na planilha de respostas do Forms
-  RESP: Object.freeze({
-    HEADER_ROW: 1,
-
-    // cabeçalhos (devem bater com a planilha)
-    TYPE: 'Quero solicitar:',
-    NAME: 'Nome Completo',
-    RGA: 'RGA',
-    EMAIL: 'Endereço de e-mail',
-
-    // controle do fluxo
-    NOTIFIED_SECS: 'Notificação aos secretários enviada?',
-    APPROVED: 'Decisão da Diretoria',
-    SENT_FINAL: 'E-mail de desligamento enviado?',
-    DEFER_DATE: 'Data/Hora do deferimento',
-  }),
-
-  // Valores esperados / regras
   VALUES: Object.freeze({
     YES: 'SIM',
-    DECISAO_DEFERIDO: 'DEFERIDO',
-    TYPE_OFFBOARD: 'Desligamento',
-    TYPE_SUSPEND: 'Suspensão',
+    NO: 'NAO',
+    DEFERIDO: 'DEFERIDO',
+    INDEFERIDO: 'INDEFERIDO',
+    HOMOLOGADO: 'HOMOLOGADO',
+    NAO_VERIFICADO: 'NAO_VERIFICADO',
+    OK: 'OK',
+    ALERTA: 'ALERTA',
+    ERRO: 'ERRO',
+  }),
+
+  RAW_FIELDS: Object.freeze({
+    TIMESTAMP: ['Carimbo de data/hora', 'Timestamp'],
+    REQUEST_TYPE: ['Quero solicitar:', 'Tipo de solicitacao', 'Solicitacao'],
+    NAME: ['Nome Completo', 'Nome'],
+    RGA: ['RGA'],
+    EMAIL: ['Endereco de e-mail', 'E-mail', 'Email'],
+    DISMISSAL_TIMING: [
+      'Desejo me desligar:',
+      'Modalidade do desligamento',
+      'Quando o desligamento deve ocorrer?'
+    ],
+    SUSPENSION_START: [
+      'Data de inicio da suspensao',
+      'Data de inicio',
+      'Quando a suspensao deve iniciar?'
+    ],
+    SUSPENSION_END: [
+      'Data de fim da suspensao',
+      'Data de retorno pretendida',
+      'Quando a suspensao deve terminar?'
+    ],
+    DISMISSAL_EFFECTIVE_DATE: [
+      'Data efetiva do desligamento',
+      'Data do desligamento',
+      'Quando o desligamento deve ser efetivado?'
+    ],
+    SEMESTER_REFERENCE: [
+      'Semestre de referencia',
+      'Semestre',
+      'Semestre letivo'
+    ],
+    REASON: [
+      'Motivo',
+      'Informe o motivo do pedido de desligamento:',
+      'Informe o motivo do pedido de suspensao:',
+      'Justificativa'
+    ],
+    OBSERVATIONS: [
+      'Observacoes',
+      'Observacoes do membro',
+      'Deseja deixar alguma observacao adicional?'
+    ],
+  }),
+
+  HEADERS: Object.freeze({
+    ID_SOLICITACAO: 'ID_SOLICITACAO',
+    ORIGEM_LINHA_FORM: 'ORIGEM_LINHA_FORM',
+    DATA_PEDIDO: 'DATA_PEDIDO',
+    NOME: 'NOME',
+    RGA: 'RGA',
+    EMAIL: 'EMAIL',
+    TIPO_SOLICITACAO: 'TIPO_SOLICITACAO',
+    MODALIDADE_EXECUCAO: 'MODALIDADE_EXECUCAO',
+    MOTIVO: 'MOTIVO',
+    OBSERVACOES_MEMBRO: 'OBSERVACOES_MEMBRO',
+    DATA_INICIO_SUSPENSAO: 'DATA_INICIO_SUSPENSAO',
+    DATA_FIM_SUSPENSAO: 'DATA_FIM_SUSPENSAO',
+    QTDE_DIAS_SUSPENSAO: 'QTDE_DIAS_SUSPENSAO',
+    VALIDACAO_MEMBRO_ENCONTRADO: 'VALIDACAO_MEMBRO_ENCONTRADO',
+    VALIDACAO_PERIODO_MINIMO: 'VALIDACAO_PERIODO_MINIMO',
+    VALIDACAO_CONFLITO_APRESENTACAO: 'VALIDACAO_CONFLITO_APRESENTACAO',
+    VALIDACAO_PENDENCIA_ARQUIVO: 'VALIDACAO_PENDENCIA_ARQUIVO',
+    VALIDACAO_OUTRAS_PENDENCIAS: 'VALIDACAO_OUTRAS_PENDENCIAS',
+    VALIDACAO_GERAL: 'VALIDACAO_GERAL',
+    DECISAO_DIRETORIA: 'DECISAO_DIRETORIA',
+    DATA_DECISAO: 'DATA_DECISAO',
+    OBS_DECISAO: 'OBS_DECISAO',
+    STATUS_SOLICITACAO: 'STATUS_SOLICITACAO',
+    EMAIL_DECISAO_ENVIADO: 'EMAIL_DECISAO_ENVIADO',
+    DATA_EMAIL_DECISAO: 'DATA_EMAIL_DECISAO',
+    SUSPENSAO_APLICADA: 'SUSPENSAO_APLICADA',
+    DATA_EXECUCAO: 'DATA_EXECUCAO',
+    RETORNO_PROCESSADO: 'RETORNO_PROCESSADO',
+    DATA_RETORNO_PROCESSADO: 'DATA_RETORNO_PROCESSADO',
+    ID_EVENTO_SUSPENSAO: 'ID_EVENTO_SUSPENSAO',
+    ID_EVENTO_RETORNO: 'ID_EVENTO_RETORNO',
+    MENSAGEM_PROCESSAMENTO: 'MENSAGEM_PROCESSAMENTO',
+    ERRO_EXECUCAO: 'ERRO_EXECUCAO',
+    RUN_ID_ULTIMO_PROCESSAMENTO: 'RUN_ID_ULTIMO_PROCESSAMENTO',
+    DATA_EFETIVA_DESLIGAMENTO: 'DATA_EFETIVA_DESLIGAMENTO',
+    SEMESTRE_REFERENCIA: 'SEMESTRE_REFERENCIA',
+    EMAIL_FINAL_ENVIADO: 'EMAIL_FINAL_ENVIADO',
+    DATA_EMAIL_FINAL: 'DATA_EMAIL_FINAL',
+    INTEGRACAO_MEMBROS_PROCESSADA: 'INTEGRACAO_MEMBROS_PROCESSADA',
+    DATA_INTEGRACAO_MEMBROS: 'DATA_INTEGRACAO_MEMBROS',
+    MENSAGEM_INTEGRACAO_MEMBROS: 'MENSAGEM_INTEGRACAO_MEMBROS',
+    DESLIGAMENTO_EXECUTADO: 'DESLIGAMENTO_EXECUTADO',
+    ID_EVENTO_DESLIGAMENTO: 'ID_EVENTO_DESLIGAMENTO',
+    NOTIFICACAO_SECRETARIA_ENVIADA: 'NOTIFICACAO_SECRETARIA_ENVIADA',
+    DATA_NOTIFICACAO_SECRETARIA: 'DATA_NOTIFICACAO_SECRETARIA',
+  }),
+
+  SHEET_HEADERS: Object.freeze({
+    SUSPENSION: [
+      'ID_SOLICITACAO',
+      'ORIGEM_LINHA_FORM',
+      'DATA_PEDIDO',
+      'NOME',
+      'RGA',
+      'EMAIL',
+      'TIPO_SOLICITACAO',
+      'MODALIDADE_EXECUCAO',
+      'MOTIVO',
+      'OBSERVACOES_MEMBRO',
+      'DATA_INICIO_SUSPENSAO',
+      'DATA_FIM_SUSPENSAO',
+      'QTDE_DIAS_SUSPENSAO',
+      'VALIDACAO_MEMBRO_ENCONTRADO',
+      'VALIDACAO_PERIODO_MINIMO',
+      'VALIDACAO_CONFLITO_APRESENTACAO',
+      'VALIDACAO_PENDENCIA_ARQUIVO',
+      'VALIDACAO_OUTRAS_PENDENCIAS',
+      'VALIDACAO_GERAL',
+      'DECISAO_DIRETORIA',
+      'DATA_DECISAO',
+      'OBS_DECISAO',
+      'STATUS_SOLICITACAO',
+      'EMAIL_DECISAO_ENVIADO',
+      'DATA_EMAIL_DECISAO',
+      'SUSPENSAO_APLICADA',
+      'DATA_EXECUCAO',
+      'RETORNO_PROCESSADO',
+      'DATA_RETORNO_PROCESSADO',
+      'ID_EVENTO_SUSPENSAO',
+      'ID_EVENTO_RETORNO',
+      'MENSAGEM_PROCESSAMENTO',
+      'ERRO_EXECUCAO',
+      'RUN_ID_ULTIMO_PROCESSAMENTO',
+      'NOTIFICACAO_SECRETARIA_ENVIADA',
+      'DATA_NOTIFICACAO_SECRETARIA',
+    ],
+    DISMISSAL: [
+      'ID_SOLICITACAO',
+      'ORIGEM_LINHA_FORM',
+      'DATA_PEDIDO',
+      'NOME',
+      'RGA',
+      'EMAIL',
+      'TIPO_SOLICITACAO',
+      'MODALIDADE_EXECUCAO',
+      'MOTIVO',
+      'OBSERVACOES_MEMBRO',
+      'DATA_EFETIVA_DESLIGAMENTO',
+      'SEMESTRE_REFERENCIA',
+      'VALIDACAO_MEMBRO_ENCONTRADO',
+      'VALIDACAO_CONFLITO_APRESENTACAO',
+      'VALIDACAO_PENDENCIA_ARQUIVO',
+      'VALIDACAO_OUTRAS_PENDENCIAS',
+      'VALIDACAO_GERAL',
+      'DECISAO_DIRETORIA',
+      'DATA_DECISAO',
+      'OBS_DECISAO',
+      'STATUS_SOLICITACAO',
+      'EMAIL_DECISAO_ENVIADO',
+      'DATA_EMAIL_DECISAO',
+      'EMAIL_FINAL_ENVIADO',
+      'DATA_EMAIL_FINAL',
+      'INTEGRACAO_MEMBROS_PROCESSADA',
+      'DATA_INTEGRACAO_MEMBROS',
+      'MENSAGEM_INTEGRACAO_MEMBROS',
+      'DESLIGAMENTO_EXECUTADO',
+      'DATA_EXECUCAO',
+      'ID_EVENTO_DESLIGAMENTO',
+      'ERRO_EXECUCAO',
+      'RUN_ID_ULTIMO_PROCESSAMENTO',
+      'NOTIFICACAO_SECRETARIA_ENVIADA',
+      'DATA_NOTIFICACAO_SECRETARIA',
+    ],
   }),
 
   EMAIL: Object.freeze({
     FROM_NAME: 'GEAPA',
-
-    // assunto de notificação aos secretários (prefixo + tipo)
-    NOTIFY_SECS_SUBJECT_PREFIX: 'GEAPA — Pedido aguardando análise: ',
-
-    // assunto do e-mail final ao membro
-    FINAL_SUBJECT_OFFBOARD: 'Confirmação de desligamento – GEAPA',
-    FINAL_SUBJECT_SUSPEND:  'Confirmação de suspensão – GEAPA',
+    SECRETARY_SUBJECT_PREFIX: 'GEAPA - Pedido aguardando analise',
+    DECISION_SUBJECT_PREFIX: 'GEAPA - Atualizacao da solicitacao',
+    FINAL_DISMISSAL_SUBJECT: 'GEAPA - Desligamento confirmado',
   }),
 });
