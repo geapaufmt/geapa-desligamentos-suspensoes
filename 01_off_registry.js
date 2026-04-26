@@ -243,6 +243,47 @@ function off_getRowValue_(rowCtx, candidates, defaultValue) {
 }
 
 /**
+ * Escreve usando uma lista de cabecalhos equivalentes, priorizando a ordem informada.
+ */
+function off_setRowValueByCandidates_(sheet, rowNumber, candidates, value) {
+  const table = off_readSheetTable_(sheet);
+  const col = off_findColumn_(table.headerMap, candidates);
+  if (!col) {
+    return '';
+  }
+  sheet.getRange(rowNumber, col).setValue(value);
+  return table.headers[col - 1] || '';
+}
+
+/**
+ * Retorna os aliases oficiais e legados para o campo de ocupacao.
+ */
+function off_getOccupationHeaderAliases_() {
+  return OFF_CFG.MEMBER_HEADER_ALIASES.OCCUPATION.slice();
+}
+
+/**
+ * Localiza a coluna equivalente a Ocupacao em uma sheet.
+ */
+function off_findOccupationColumn_(headerMap) {
+  return off_findColumn_(headerMap, off_getOccupationHeaderAliases_());
+}
+
+/**
+ * Le Ocupacao com compatibilidade retroativa para Cargo/Funcao.
+ */
+function off_getOccupationValue_(rowCtx, defaultValue) {
+  return off_getRowValue_(rowCtx, off_getOccupationHeaderAliases_(), defaultValue);
+}
+
+/**
+ * Escreve Ocupacao preferindo o cabecalho novo quando ele existir.
+ */
+function off_setOccupationValue_(sheet, rowNumber, value) {
+  return off_setRowValueByCandidates_(sheet, rowNumber, off_getOccupationHeaderAliases_(), value);
+}
+
+/**
  * Atualiza celulas de uma linha usando o nome do cabecalho.
  */
 function off_setRowValues_(sheet, rowNumber, updates) {
