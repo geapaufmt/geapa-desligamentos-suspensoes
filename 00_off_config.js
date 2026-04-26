@@ -236,4 +236,17 @@ const OFF_CFG = Object.freeze({
     DECISION_SUBJECT_PREFIX: 'GEAPA - Atualizacao da solicitacao',
     FINAL_DISMISSAL_SUBJECT: 'GEAPA - Desligamento confirmado',
   }),
+
+  MEMBER_HEADER_ALIASES: Object.freeze({
+    OCCUPATION: Object.freeze([
+      'Ocupação',
+      'Ocupacao',
+      'Cargo/Função',
+      'Cargo/Funcao',
+    ]),
+  }),
+
+  INTERFACE_LABELS: Object.freeze({
+    OCCUPATION: 'Ocupação',
+  }),
 });

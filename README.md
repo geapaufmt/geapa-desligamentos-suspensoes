@@ -112,6 +112,23 @@ Comportamento atual:
 - se necessario, tenta confirmar em `Atividades_Apresentacoes`;
 - se a integracao nao estiver disponivel, retorna `NAO_VERIFICADO` sem quebrar o fluxo.
 
+## Compatibilidade Semantica de Ocupacao
+
+Este modulo nao depende diretamente hoje de colunas de `Cargo/Função` para executar seus fluxos principais.
+As interacoes reais com a base de membros continuam centradas em identidade (`RGA` e `EMAIL`) e em e-mail group institucional.
+
+Mesmo assim, o modulo passou a expor uma camada centralizada de compatibilidade para a transicao semantica:
+
+- aliases aceitos para leitura: `Ocupação`, `Ocupacao`, `Cargo/Função`, `Cargo/Funcao`
+- escrita preferencial em `Ocupação`/`Ocupacao`, com fallback para o legado
+- helpers centralizados em [01_off_registry.js](/C:/Users/Windows%2010/geapa-desligamentos-suspensoes/01_off_registry.js):
+  - `off_getOccupationHeaderAliases_()`
+  - `off_findOccupationColumn_(headerMap)`
+  - `off_getOccupationValue_(rowCtx, defaultValue)`
+  - `off_setOccupationValue_(sheet, rowNumber, value)`
+
+Com isso, o modulo fica preparado para uma futura etapa de renomeacao fisica dos cabecalhos sem espalhar acesso hardcoded por `Cargo/Função`.
+
 ## Triggers
 
 Instalados por `off_installTriggers()`:
