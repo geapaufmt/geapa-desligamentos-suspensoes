@@ -8,67 +8,96 @@
  */
 function off_handleFormSubmit(e) {
   const runId = off_newRunId_();
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(30000)) {
-    off_logWarn_(runId, 'off_handleFormSubmit: lock nao obtido');
-    return null;
-  }
+  return off_runControlledFlow_(
+    OFF_OPS.FLOWS.RECEBIMENTO_FORMULARIO,
+    OFF_OPS.CAPABILITIES.SYNC,
+    {
+      executionType: off_getExecutionTypeFromEvent_(e),
+      runId: runId,
+      origin: 'FORM_SUBMIT',
+    },
+    function(control) {
+      const lock = LockService.getScriptLock();
+      if (!lock.tryLock(30000)) {
+        off_logWarn_(runId, 'off_handleFormSubmit: lock nao obtido');
+        return null;
+      }
 
-  try {
-    off_ensureOperationalSheets_();
+      try {
+        off_ensureOperationalSheets_();
 
-    const responsesSheet = off_getResponsesSheet_();
-    const sourceRow = off_extractSourceRow_(e, responsesSheet);
-    if (!sourceRow || sourceRow <= OFF_CFG.HEADER_ROW) {
-      off_logWarn_(runId, 'off_handleFormSubmit: linha de origem invalida', { sourceRow: sourceRow });
-      return null;
+        const responsesSheet = off_getResponsesSheet_();
+        const sourceRow = off_extractSourceRow_(e, responsesSheet);
+        if (!sourceRow || sourceRow <= OFF_CFG.HEADER_ROW) {
+          off_logWarn_(runId, 'off_handleFormSubmit: linha de origem invalida', { sourceRow: sourceRow });
+          return null;
+        }
+
+        const duplicated = off_findExistingRequestBySourceRow_(sourceRow);
+        if (duplicated) {
+          off_logInfo_(runId, 'off_handleFormSubmit: submissao ja roteada', duplicated);
+          return duplicated;
+        }
+
+        const rawRow = off_readRowContext_(responsesSheet, sourceRow);
+        const request = off_normalizeRawSubmission_(rawRow, sourceRow);
+        const queueSheet = off_getQueueSheetByType_(request.requestType);
+        const queueHeaders = off_getQueueHeadersByType_(request.requestType);
+        const queuePayload = request.requestType === OFF_TYPES.SUSPENSAO
+          ? off_buildSuspensionQueueRow_(request, runId)
+          : off_buildDismissalQueueRow_(request, runId);
+
+        if (control.dryRun) {
+          off_logInfo_(runId, 'off_handleFormSubmit: DRY_RUN, roteamento validado sem escrever na fila oficial.', {
+            requestId: request.requestId,
+            queueSheet: queueSheet.getName(),
+            requestType: request.requestType,
+            executionMode: request.executionMode,
+          });
+          return {
+            dryRun: true,
+            requestId: request.requestId,
+            queueSheet: queueSheet.getName(),
+            queuePayload: queuePayload,
+          };
+        }
+
+        const queueRow = off_appendObjectRow_(queueSheet, queueHeaders, queuePayload);
+        const notification = off_notifySecretariesOfNewRequest_(Object.assign({}, request, {
+          runId: runId,
+          executionType: control.executionType,
+        }));
+
+        off_setRowValues_(queueSheet, queueRow, {
+          NOTIFICACAO_SECRETARIA_ENVIADA: notification.sent ? OFF_CFG.VALUES.YES : OFF_CFG.VALUES.NO,
+          DATA_NOTIFICACAO_SECRETARIA: notification.sent ? new Date() : '',
+          MENSAGEM_PROCESSAMENTO: off_joinMessage_(queuePayload.MENSAGEM_PROCESSAMENTO, notification.message),
+        });
+
+        off_logInfo_(runId, 'off_handleFormSubmit: solicitacao roteada', {
+          requestId: request.requestId,
+          queueSheet: queueSheet.getName(),
+          queueRow: queueRow,
+          requestType: request.requestType,
+          executionMode: request.executionMode,
+        });
+
+        return {
+          sheet: queueSheet,
+          rowNumber: queueRow,
+          requestId: request.requestId,
+        };
+      } catch (err) {
+        off_logError_(runId, 'off_handleFormSubmit: erro', {
+          err: String(err),
+          stack: err && err.stack,
+        });
+        throw err;
+      } finally {
+        lock.releaseLock();
+      }
     }
-
-    const duplicated = off_findExistingRequestBySourceRow_(sourceRow);
-    if (duplicated) {
-      off_logInfo_(runId, 'off_handleFormSubmit: submissao ja roteada', duplicated);
-      return duplicated;
-    }
-
-    const rawRow = off_readRowContext_(responsesSheet, sourceRow);
-    const request = off_normalizeRawSubmission_(rawRow, sourceRow);
-    const queueSheet = off_getQueueSheetByType_(request.requestType);
-    const queueHeaders = off_getQueueHeadersByType_(request.requestType);
-    const queuePayload = request.requestType === OFF_TYPES.SUSPENSAO
-      ? off_buildSuspensionQueueRow_(request, runId)
-      : off_buildDismissalQueueRow_(request, runId);
-
-    const queueRow = off_appendObjectRow_(queueSheet, queueHeaders, queuePayload);
-    const notification = off_notifySecretariesOfNewRequest_(request);
-
-    off_setRowValues_(queueSheet, queueRow, {
-      NOTIFICACAO_SECRETARIA_ENVIADA: notification.sent ? OFF_CFG.VALUES.YES : OFF_CFG.VALUES.NO,
-      DATA_NOTIFICACAO_SECRETARIA: notification.sent ? new Date() : '',
-      MENSAGEM_PROCESSAMENTO: off_joinMessage_(queuePayload.MENSAGEM_PROCESSAMENTO, notification.message),
-    });
-
-    off_logInfo_(runId, 'off_handleFormSubmit: solicitacao roteada', {
-      requestId: request.requestId,
-      queueSheet: queueSheet.getName(),
-      queueRow: queueRow,
-      requestType: request.requestType,
-      executionMode: request.executionMode,
-    });
-
-    return {
-      sheet: queueSheet,
-      rowNumber: queueRow,
-      requestId: request.requestId,
-    };
-  } catch (err) {
-    off_logError_(runId, 'off_handleFormSubmit: erro', {
-      err: String(err),
-      stack: err && err.stack,
-    });
-    throw err;
-  } finally {
-    lock.releaseLock();
-  }
+  );
 }
 
 /**

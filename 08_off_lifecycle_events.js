@@ -7,32 +7,49 @@
  * Helper base para append institucional de eventos de vinculo.
  */
 function off_appendLifecycleEvent_(payload) {
-  if (
-    typeof GEAPA_CORE === 'undefined' ||
-    !GEAPA_CORE ||
-    typeof GEAPA_CORE.coreAppendMemberLifecycleEvent !== 'function'
-  ) {
-    throw new Error('GEAPA_CORE.coreAppendMemberLifecycleEvent nao esta disponivel.');
-  }
+  return off_runControlledFlow_(
+    OFF_OPS.FLOWS.EVENTOS_VINCULO,
+    OFF_OPS.CAPABILITIES.SYNC,
+    {
+      executionType: payload && payload.executionType ? payload.executionType : OFF_OPS.EXECUTION_TYPES.MANUAL,
+      runId: payload && payload.runId ? payload.runId : '',
+      origin: payload && payload.origin ? payload.origin : 'LIFECYCLE_EVENT',
+      sheetName: payload && payload.sourceKey ? payload.sourceKey : '',
+      rowNumber: payload && payload.sourceRow ? payload.sourceRow : '',
+    },
+    function(control) {
+      if (control.dryRun) {
+        return { dryRun: true, eventId: '', message: 'DRY_RUN: evento institucional nao registrado.' };
+      }
 
-  const result = GEAPA_CORE.coreAppendMemberLifecycleEvent({
-    rga: payload.rga,
-    eventType: payload.eventType,
-    eventDate: payload.eventDate || new Date(),
-    eventStatus: OFF_CFG.VALUES.HOMOLOGADO,
-    reason: payload.reason || '',
-    sourceModule: OFF_CFG.SOURCE_MODULE,
-    sourceKey: payload.sourceKey || OFF_KEYS.RESPONSES,
-    sourceRow: payload.sourceRow || '',
-    memberName: payload.memberName || '',
-    memberEmail: payload.memberEmail || '',
-    notes: payload.notes || '',
-  });
+      if (
+        typeof GEAPA_CORE === 'undefined' ||
+        !GEAPA_CORE ||
+        typeof GEAPA_CORE.coreAppendMemberLifecycleEvent !== 'function'
+      ) {
+        throw new Error('GEAPA_CORE.coreAppendMemberLifecycleEvent nao esta disponivel.');
+      }
 
-  if (!result) {
-    throw new Error('Falha ao registrar evento em ' + OFF_KEYS.MEMBER_EVENTS + '.');
-  }
-  return result;
+      const result = GEAPA_CORE.coreAppendMemberLifecycleEvent({
+        rga: payload.rga,
+        eventType: payload.eventType,
+        eventDate: payload.eventDate || new Date(),
+        eventStatus: OFF_CFG.VALUES.HOMOLOGADO,
+        reason: payload.reason || '',
+        sourceModule: OFF_CFG.SOURCE_MODULE,
+        sourceKey: payload.sourceKey || OFF_KEYS.RESPONSES,
+        sourceRow: payload.sourceRow || '',
+        memberName: payload.memberName || '',
+        memberEmail: payload.memberEmail || '',
+        notes: payload.notes || '',
+      });
+
+      if (!result) {
+        throw new Error('Falha ao registrar evento em ' + OFF_KEYS.MEMBER_EVENTS + '.');
+      }
+      return result;
+    }
+  );
 }
 
 /**

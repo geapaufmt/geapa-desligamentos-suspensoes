@@ -31,34 +31,48 @@ function off_onEditDecision(e) {
   }
 
   const runId = off_newRunId_();
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(30000)) {
-    off_logWarn_(runId, 'off_onEditDecision: lock nao obtido', {
+  return off_runControlledFlow_(
+    OFF_OPS.FLOWS.DECISAO_DIRETORIA,
+    OFF_OPS.CAPABILITIES.SYNC,
+    {
+      executionType: off_getExecutionTypeFromEvent_(e),
+      runId: runId,
+      origin: 'ON_EDIT',
       sheetName: sheet.getName(),
-      row: e.range.getRow(),
-    });
-    return;
-  }
+      rowNumber: e.range.getRow(),
+    },
+    function(control) {
+      const lock = LockService.getScriptLock();
+      if (!lock.tryLock(30000)) {
+        off_logWarn_(runId, 'off_onEditDecision: lock nao obtido', {
+          sheetName: sheet.getName(),
+          row: e.range.getRow(),
+        });
+        return null;
+      }
 
-  try {
-    off_processDecisionRow_(sheet, e.range.getRow(), runId);
-  } catch (err) {
-    off_logError_(runId, 'off_onEditDecision: erro', {
-      err: String(err),
-      stack: err && err.stack,
-      sheetName: sheet.getName(),
-      row: e.range.getRow(),
-    });
-    throw err;
-  } finally {
-    lock.releaseLock();
-  }
+      try {
+        return off_processDecisionRow_(sheet, e.range.getRow(), runId, { control: control });
+      } catch (err) {
+        off_logError_(runId, 'off_onEditDecision: erro', {
+          err: String(err),
+          stack: err && err.stack,
+          sheetName: sheet.getName(),
+          row: e.range.getRow(),
+        });
+        throw err;
+      } finally {
+        lock.releaseLock();
+      }
+    }
+  );
 }
 
 /**
  * Processa uma linha apos decisao manual, preservando execucao imediata de desligamento.
  */
-function off_processDecisionRow_(sheet, rowNumber, runId) {
+function off_processDecisionRow_(sheet, rowNumber, runId, options) {
+  const control = options && options.control ? options.control : null;
   const rowCtx = off_readRowContext_(sheet, rowNumber);
   const decision = off_normalizeTextKey_(off_getRowValue_(rowCtx, OFF_CFG.HEADERS.DECISAO_DIRETORIA, ''));
   const requestType = String(off_getRowValue_(rowCtx, OFF_CFG.HEADERS.TIPO_SOLICITACAO, '') || '').trim();
@@ -73,6 +87,24 @@ function off_processDecisionRow_(sheet, rowNumber, runId) {
     return;
   }
 
+  if (control && control.dryRun) {
+    off_logInfo_(runId, 'off_processDecisionRow_: DRY_RUN, decisao lida sem alterar a fila oficial.', {
+      sheetName: sheet.getName(),
+      rowNumber: rowNumber,
+      decision: decision,
+      requestType: requestType,
+      executionMode: executionMode,
+    });
+    return {
+      dryRun: true,
+      sheetName: sheet.getName(),
+      rowNumber: rowNumber,
+      decision: decision,
+      requestType: requestType,
+      executionMode: executionMode,
+    };
+  }
+
   const now = new Date();
   off_setRowValues_(sheet, rowNumber, {
     DATA_DECISAO: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.DATA_DECISAO, '') || now,
@@ -82,7 +114,7 @@ function off_processDecisionRow_(sheet, rowNumber, runId) {
   });
 
   if (decision === OFF_CFG.VALUES.INDEFERIDO) {
-    off_maybeSendDecisionEmail_(sheet, rowNumber, false);
+    off_maybeSendDecisionEmail_(sheet, rowNumber, false, options);
     off_setRowValues_(sheet, rowNumber, {
       MENSAGEM_PROCESSAMENTO: off_joinMessage_(
         off_getRowValue_(off_readRowContext_(sheet, rowNumber), OFF_CFG.HEADERS.MENSAGEM_PROCESSAMENTO, ''),
@@ -93,29 +125,40 @@ function off_processDecisionRow_(sheet, rowNumber, runId) {
   }
 
   if (requestType === OFF_TYPES.SUSPENSAO) {
-    off_maybeSendDecisionEmail_(sheet, rowNumber, true);
-    off_handleApprovedSuspensionDecision_(sheet, rowNumber, runId);
+    off_maybeSendDecisionEmail_(sheet, rowNumber, true, options);
+    off_handleApprovedSuspensionDecision_(sheet, rowNumber, runId, options);
     return;
   }
 
   if (requestType === OFF_TYPES.DESLIGAMENTO && executionMode === OFF_EXECUTION.IMEDIATO) {
-    off_executeDismissalRow_(sheet, rowNumber, runId, {
+    const result = off_executeDismissalRow_(sheet, rowNumber, runId, {
       effectiveDate: now,
       origin: 'DECISION',
+      executionType: control ? control.executionType : OFF_OPS.EXECUTION_TYPES.MANUAL,
     });
+    if (result && result.blocked) {
+      off_setRowValues_(sheet, rowNumber, {
+        MENSAGEM_PROCESSAMENTO: off_joinMessage_(
+          off_getRowValue_(off_readRowContext_(sheet, rowNumber), OFF_CFG.HEADERS.MENSAGEM_PROCESSAMENTO, ''),
+          result.message
+        ),
+        RUN_ID_ULTIMO_PROCESSAMENTO: runId,
+      });
+    }
     return;
   }
 
   if (requestType === OFF_TYPES.DESLIGAMENTO && executionMode === OFF_EXECUTION.FIM_SEMESTRE) {
-    off_maybeSendDecisionEmail_(sheet, rowNumber, true);
-    off_scheduleApprovedDismissal_(sheet, rowNumber, runId);
+    off_maybeSendDecisionEmail_(sheet, rowNumber, true, options);
+    off_scheduleApprovedDismissal_(sheet, rowNumber, runId, options);
   }
 }
 
 /**
  * Trata deferimento de suspensao, aplicando agora ou agendando para o job diario.
  */
-function off_handleApprovedSuspensionDecision_(sheet, rowNumber, runId) {
+function off_handleApprovedSuspensionDecision_(sheet, rowNumber, runId, options) {
+  const control = options && options.control ? options.control : null;
   const rowCtx = off_readRowContext_(sheet, rowNumber);
   const startDate = off_parseDate_(off_getRowValue_(rowCtx, OFF_CFG.HEADERS.DATA_INICIO_SUSPENSAO, null));
   const endDate = off_parseDate_(off_getRowValue_(rowCtx, OFF_CFG.HEADERS.DATA_FIM_SUSPENSAO, null));
@@ -131,7 +174,19 @@ function off_handleApprovedSuspensionDecision_(sheet, rowNumber, runId) {
   }
 
   if (off_isDueOnOrBeforeToday_(startDate, new Date())) {
-    off_executeSuspensionRow_(sheet, rowNumber, runId, { origin: 'DECISION' });
+    const result = off_executeSuspensionRow_(sheet, rowNumber, runId, {
+      origin: 'DECISION',
+      executionType: control ? control.executionType : OFF_OPS.EXECUTION_TYPES.MANUAL,
+    });
+    if (result && result.blocked) {
+      off_setRowValues_(sheet, rowNumber, {
+        MENSAGEM_PROCESSAMENTO: off_joinMessage_(
+          off_getRowValue_(off_readRowContext_(sheet, rowNumber), OFF_CFG.HEADERS.MENSAGEM_PROCESSAMENTO, ''),
+          result.message
+        ),
+        RUN_ID_ULTIMO_PROCESSAMENTO: runId,
+      });
+    }
     return;
   }
 
@@ -148,7 +203,8 @@ function off_handleApprovedSuspensionDecision_(sheet, rowNumber, runId) {
 /**
  * Agenda desligamento deferido para execucao no fim do semestre.
  */
-function off_scheduleApprovedDismissal_(sheet, rowNumber, runId) {
+function off_scheduleApprovedDismissal_(sheet, rowNumber, runId, options) {
+  const control = options && options.control ? options.control : null;
   const rowCtx = off_readRowContext_(sheet, rowNumber);
   const currentDate = off_parseDate_(off_getRowValue_(rowCtx, OFF_CFG.HEADERS.DATA_EFETIVA_DESLIGAMENTO, null));
   const semesterReference = String(off_getRowValue_(rowCtx, OFF_CFG.HEADERS.SEMESTRE_REFERENCIA, '') || '').trim();
@@ -159,6 +215,12 @@ function off_scheduleApprovedDismissal_(sheet, rowNumber, runId) {
     email: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.EMAIL, ''),
     effectiveDate: effectiveDate,
     semesterReference: semesterReference,
+  }, {
+    runId: runId,
+    executionType: control ? control.executionType : OFF_OPS.EXECUTION_TYPES.MANUAL,
+    origin: 'DECISION',
+    sheetName: sheet.getName(),
+    rowNumber: rowNumber,
   });
 
   off_setRowValues_(sheet, rowNumber, {
@@ -176,7 +238,8 @@ function off_scheduleApprovedDismissal_(sheet, rowNumber, runId) {
 /**
  * Envia e marca o e-mail de decisao apenas uma vez por linha.
  */
-function off_maybeSendDecisionEmail_(sheet, rowNumber, approved) {
+function off_maybeSendDecisionEmail_(sheet, rowNumber, approved, options) {
+  const control = options && options.control ? options.control : null;
   const rowCtx = off_readRowContext_(sheet, rowNumber);
   const alreadySent = off_normalizeTextKey_(off_getRowValue_(rowCtx, OFF_CFG.HEADERS.EMAIL_DECISAO_ENVIADO, ''));
   if (alreadySent === OFF_CFG.VALUES.YES) {
@@ -189,6 +252,8 @@ function off_maybeSendDecisionEmail_(sheet, rowNumber, approved) {
     requestType: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.TIPO_SOLICITACAO, ''),
     executionMode: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.MODALIDADE_EXECUCAO, ''),
     approved: approved,
+    runId: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.RUN_ID_ULTIMO_PROCESSAMENTO, '') || (control ? control.runId : ''),
+    executionType: control ? control.executionType : OFF_OPS.EXECUTION_TYPES.MANUAL,
   });
 
   if (!sent.sent) {

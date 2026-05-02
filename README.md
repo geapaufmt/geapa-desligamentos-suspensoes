@@ -63,7 +63,65 @@ Fluxo:
 - [08_off_lifecycle_events.js](/C:/Users/Windows%2010/geapa-desligamentos-suspensoes/08_off_lifecycle_events.js)
 - [09_off_notifications.js](/C:/Users/Windows%2010/geapa-desligamentos-suspensoes/09_off_notifications.js)
 - [10_off_jobs.js](/C:/Users/Windows%2010/geapa-desligamentos-suspensoes/10_off_jobs.js)
+- [12_off_operational_control.js](/C:/Users/Windows%2010/geapa-desligamentos-suspensoes/12_off_operational_control.js)
 - [50_off_install.js](/C:/Users/Windows%2010/geapa-desligamentos-suspensoes/50_off_install.js)
+
+## Controle operacional central
+
+Este modulo consome a camada central do `GEAPA_CORE` antes de executar fluxos sensiveis.
+
+API publica usada:
+
+- `GEAPA_CORE.coreGetModuleConfig(moduleName, flowName, opts)`
+- `GEAPA_CORE.coreAssertModuleExecutionAllowed(moduleName, flowName, capability, opts)`
+- `GEAPA_CORE.coreModuleStatusMarkExecution(moduleName, flowName, capability, opts)`
+- `GEAPA_CORE.coreModuleStatusMarkSuccess(moduleName, flowName, capability, opts)`
+- `GEAPA_CORE.coreModuleStatusMarkError(moduleName, flowName, errorOrMessage, capability, opts)`
+- `GEAPA_CORE.coreModuleStatusMarkBlocked(moduleName, flowName, reasonCode, reasonMessage, capability, modeRead, opts)`
+
+Modulo consumido no painel central:
+
+- `DESLIGAMENTOS`
+
+Fluxos integrados:
+
+- `GERAL` como fallback automatico do core
+- `RECEBIMENTO_FORMULARIO`
+- `DECISAO_DIRETORIA`
+- `EXECUCAO_SUSPENSAO`
+- `EXECUCAO_DESLIGAMENTO`
+- `INTEGRACAO_MEMBROS`
+- `EMAIL_FINAL`
+- `EMAIL_NOTIFICACAO`
+- `EVENTOS_VINCULO`
+- `JOB_DIARIO_FILAS`
+
+Capabilities usadas:
+
+- `RECEBIMENTO_FORMULARIO` -> `SYNC`
+- `DECISAO_DIRETORIA` -> `SYNC`
+- `EXECUCAO_SUSPENSAO` -> `SYNC`
+- `EXECUCAO_DESLIGAMENTO` -> `SYNC`
+- `INTEGRACAO_MEMBROS` -> `SYNC`
+- `EMAIL_FINAL` -> `EMAIL`
+- `EMAIL_NOTIFICACAO` -> `EMAIL`
+- `EVENTOS_VINCULO` -> `SYNC`
+- `JOB_DIARIO_FILAS` -> `SYNC`
+
+Tratamento dos modos:
+
+- `ON`: executa normalmente.
+- `OFF`: bloqueia o fluxo de forma limpa, com log e marcacao em `MODULOS_STATUS`.
+- `DRY_RUN`: permite leitura, validacao e logs, mas nao escreve em filas oficiais, nao envia e-mail final, nao integra com `GEAPA_MEMBROS` e nao registra append institucional efetivo.
+- `MANUAL`: bloqueia execucao automatica por trigger, mas permite chamada manual.
+
+Observacoes praticas:
+
+- o core procura primeiro `MODULO + FLUXO` e depois faz fallback para `MODULO + GERAL`;
+- o job diario e controlado em `JOB_DIARIO_FILAS`, enquanto efeitos especificos continuam respeitando seus subfluxos (`INTEGRACAO_MEMBROS` e `EMAIL_FINAL`);
+- e-mails de secretaria e decisao agora podem ser controlados separadamente por `EMAIL_NOTIFICACAO`;
+- o append institucional em `MEMBER_EVENTOS_VINCULO` agora pode ser controlado separadamente por `EVENTOS_VINCULO`;
+- o registro em `MODULOS_STATUS` e feito em melhor esforco para nao derrubar o modulo caso haja falha operacional nessa camada.
 
 ## Regras por fluxo
 
@@ -137,6 +195,8 @@ Instalados por `off_installTriggers()`:
 - `off_onEditDecision` em `onEdit`;
 - `off_processDailyLifecycleQueue` em trigger diario.
 
+Quando um fluxo estiver em `MANUAL`, esses gatilhos automaticos ficam bloqueados pela camada central do `GEAPA_CORE`.
+
 ## UX operacional
 
 O modulo agora possui uma camada reaplicavel de UX para as filas operacionais:
@@ -185,3 +245,4 @@ Essa camada aplica:
 - A deteccao de campos do formulario depende de aliases; se o Forms mudar muito de texto, sera preciso ampliar a lista em `OFF_CFG.RAW_FIELDS`.
 - A integracao com atividades esta isolada e ainda parcial; `NAO_VERIFICADO` e um estado esperado nesta versao.
 - O backfill de pedidos antigos da aba bruta ficou como etapa futura.
+- O modulo continua em rollout conservador: se o `GEAPA_CORE` operacional estiver indisponivel, a execucao cai em modo compativel e apenas registra aviso em log.
