@@ -252,6 +252,7 @@ function off_maybeSendDecisionEmail_(sheet, rowNumber, approved, options) {
     requestType: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.TIPO_SOLICITACAO, ''),
     executionMode: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.MODALIDADE_EXECUCAO, ''),
     approved: approved,
+    decisionNotes: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.OBS_DECISAO, ''),
     runId: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.RUN_ID_ULTIMO_PROCESSAMENTO, '') || (control ? control.runId : ''),
     executionType: control ? control.executionType : OFF_OPS.EXECUTION_TYPES.MANUAL,
   });

@@ -146,6 +146,15 @@ Observacoes praticas:
 - Continua usando `GEAPA_MEMBROS.members_offboardApprovedImmediateExit(payload)`.
 - O payload legado foi preservado para esse caso.
 - O e-mail final e enviado no momento da execucao.
+- O e-mail final agora pode variar conforme a apuracao de `DIREITO_HORAS_COMPLEMENTARES` na fila de desligamento:
+  - `SIM` preenchido manualmente: força a variante com horas;
+  - `NAO` preenchido manualmente: força a variante sem horas;
+  - `PENDENTE` preenchido manualmente: efetiva o desligamento e informa que a análise das horas complementares continua em aberto;
+  - vazio: o modulo tenta apuracao automatica pela base de presencas/atividades;
+  - se a apuracao automatica nao for conclusiva, registra `PENDENTE` e usa a variante pendente do e-mail final.
+- A apuracao automatica e feita na entrada da solicitacao na fila, para que a diretoria consiga revisar `SIM`, `NAO` ou `PENDENTE` antes do deferimento.
+- `DIREITO_HORAS_COMPLEMENTARES` nao interfere na permissao de desligamento. A coluna registra apenas a situacao das horas complementares no periodo.
+- `OBS_DECISAO` e incluida nos e-mails ao membro como mensagem complementar da diretoria, quando preenchida.
 - O evento `DESLIGAMENTO_VOLUNTARIO` e sempre obrigatorio.
 
 ### Desligamento ao fim do semestre
@@ -169,6 +178,16 @@ Comportamento atual:
 - tenta ler `PREVISAO_APRESENTACAO_NO_PERIODO` como filtro rapido, se a base existir;
 - se necessario, tenta confirmar em `Atividades_Apresentacoes`;
 - se a integracao nao estiver disponivel, retorna `NAO_VERIFICADO` sem quebrar o fluxo.
+- para desligamento, tambem tenta apurar automaticamente elegibilidade a horas complementares usando:
+  - `APRESENTOU_NO_PERIODO`
+  - `PREVISAO_APRESENTACAO_NO_PERIODO`
+  - `PERCENTUAL_FREQUENCIA`
+  - `TOTAL_ATIVIDADES_QUE_CONTAM_FALTA`
+  - `LIMITE_FALTAS_PERIODO`
+  - `FALTAS_LIQUIDAS`
+  - `PERCENTUAL_USO_LIMITE`
+  - `SITUACAO_DISCIPLINAR`
+- o campo `DIREITO_HORAS_COMPLEMENTARES` permanece como override manual quando a diretoria quiser fixar a decisao operacionalmente, inclusive com `PENDENTE` para casos que dependem de conclusao posterior.
 
 ## Compatibilidade Semantica de Ocupacao
 
@@ -239,6 +258,9 @@ Essa camada aplica:
 3. Ajuste a data final para hoje e rode `off_processDailyLifecycleQueue()` para confirmar append de `RETORNO`.
 4. Envie um desligamento imediato, defera a linha e confirme e-mail final, integracao com membros e evento `DESLIGAMENTO_VOLUNTARIO`.
 5. Envie um desligamento de fim de semestre, defera a linha e confirme `AGUARDANDO_EXECUCAO`; depois rode o job com a data efetiva vencida.
+6. Na fila `PEDIDOS_DESLIGAMENTO`, deixe `DIREITO_HORAS_COMPLEMENTARES` em branco e valide se a apuracao automatica define a variante correta do e-mail final conforme a base de presencas.
+7. Preencha `DIREITO_HORAS_COMPLEMENTARES = SIM`, `NAO` e `PENDENTE` para confirmar que o override manual continua prevalecendo sobre a apuracao automatica.
+8. Preencha `OBS_DECISAO` e confirme se a mensagem da diretoria aparece no e-mail de decisao e no e-mail final.
 
 ## Riscos e TODOs conhecidos
 

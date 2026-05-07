@@ -120,10 +120,23 @@ function off_ensureFinalDismissalEmail_(sheet, rowNumber, options) {
     return { sent: true, message: 'E-mail final ja havia sido enviado.' };
   }
 
+  const hoursRights = off_resolveDismissalHoursRights_(sheet, rowNumber);
+  if (hoursRights && hoursRights.resolvedFlag) {
+    off_setRowValues_(sheet, rowNumber, {
+      DIREITO_HORAS_COMPLEMENTARES: hoursRights.resolvedFlag,
+      MENSAGEM_PROCESSAMENTO: off_joinMessage_(
+        off_getRowValue_(rowCtx, OFF_CFG.HEADERS.MENSAGEM_PROCESSAMENTO, ''),
+        hoursRights.message
+      ),
+    });
+  }
+
   const sent = off_sendFinalDismissalEmail_({
     name: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.NOME, ''),
     email: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.EMAIL, ''),
     requestType: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.TIPO_SOLICITACAO, ''),
+    hasHoursRights: hoursRights ? hoursRights.resolvedFlag : off_getRowValue_(rowCtx, OFF_CFG.HEADERS.DIREITO_HORAS_COMPLEMENTARES, ''),
+    decisionNotes: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.OBS_DECISAO, ''),
   }, options);
 
   if (!sent.sent) {
@@ -138,6 +151,37 @@ function off_ensureFinalDismissalEmail_(sheet, rowNumber, options) {
   });
 
   return sent;
+}
+
+/**
+ * Resolve o direito a horas complementares priorizando override manual e caindo para apuracao automatica.
+ */
+function off_resolveDismissalHoursRights_(sheet, rowNumber) {
+  const rowCtx = off_readRowContext_(sheet, rowNumber);
+  const manualFlag = off_getRowValue_(rowCtx, OFF_CFG.HEADERS.DIREITO_HORAS_COMPLEMENTARES, '');
+  const semesterReference = off_getRowValue_(rowCtx, OFF_CFG.HEADERS.SEMESTRE_REFERENCIA, '');
+  const assessment = off_checkHoursEligibility_(
+    off_getRowValue_(rowCtx, OFF_CFG.HEADERS.RGA, ''),
+    semesterReference,
+    {
+      manualFlag: manualFlag,
+      requestType: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.TIPO_SOLICITACAO, ''),
+      executionMode: off_getRowValue_(rowCtx, OFF_CFG.HEADERS.MODALIDADE_EXECUCAO, ''),
+      sourceSheet: sheet.getName(),
+      rowNumber: rowNumber,
+    }
+  );
+
+  return {
+    resolvedFlag: assessment && assessment.sourceFlag ? assessment.sourceFlag : '',
+    sourceType: assessment && assessment.sourceType ? assessment.sourceType : 'DESCONHECIDO',
+    status: assessment && assessment.status ? assessment.status : OFF_CFG.VALUES.NAO_VERIFICADO,
+    eligible: assessment ? assessment.eligible : null,
+    message: assessment && assessment.message
+      ? 'Horas complementares [' + (assessment.sourceType || 'DESCONHECIDO') + ']: ' + assessment.message
+      : 'Horas complementares nao puderam ser apuradas automaticamente.',
+    details: assessment || null,
+  };
 }
 
 /**

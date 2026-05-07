@@ -20,6 +20,13 @@ function off_validateNormalizedRequest_(request) {
   const minimumPeriod = request.requestType === OFF_TYPES.SUSPENSAO
     ? off_validateSuspensionPeriod_(request.suspensionStart, request.suspensionEnd)
     : { status: OFF_CFG.VALUES.OK, flag: OFF_CFG.VALUES.NAO_VERIFICADO, message: '' };
+  const hoursEligibility = request.requestType === OFF_TYPES.DESLIGAMENTO
+    ? off_checkHoursEligibility_(request.rga, request.semesterReference, {
+        requestType: request.requestType,
+        executionMode: request.executionMode,
+        requestDate: request.requestDate,
+      })
+    : null;
 
   const issues = [];
   if (minimumPeriod.status === OFF_CFG.VALUES.ERRO) {
@@ -30,6 +37,9 @@ function off_validateNormalizedRequest_(request) {
   }
   if (memberLookup.status === OFF_CFG.VALUES.ERRO) {
     issues.push(memberLookup.message);
+  }
+  if (hoursEligibility && hoursEligibility.sourceFlag === OFF_CFG.VALUES.PENDENTE) {
+    issues.push('A elegibilidade a horas complementares ficou pendente para analise da diretoria.');
   }
 
   let generalStatus = OFF_CFG.VALUES.OK;
@@ -52,6 +62,7 @@ function off_validateNormalizedRequest_(request) {
     minimumPeriod.message,
     aggregate.message,
     otherPending.message,
+    hoursEligibility ? hoursEligibility.message : '',
   ].filter(Boolean);
 
   return {
@@ -60,12 +71,14 @@ function off_validateNormalizedRequest_(request) {
     presentationConflictFlag: off_toFlag_(aggregate.hasPresentationInPeriod || aggregate.hasFuturePresentation),
     pendingFileFlag: off_toFlag_(aggregate.hasPendingFile),
     otherPendingFlag: otherPending.flag,
+    hoursRightsFlag: hoursEligibility && hoursEligibility.sourceFlag ? hoursEligibility.sourceFlag : '',
     generalStatus: generalStatus,
     message: messageParts.join(' | ') || 'Validacao inicial registrada.',
     details: {
       memberLookup: memberLookup,
       aggregate: aggregate,
       otherPending: otherPending,
+      hoursEligibility: hoursEligibility,
     },
   };
 }
@@ -281,6 +294,322 @@ function off_tryReadActivitiesPresenceFlag_(rga) {
   }
 
   return { connected: true, flag: null, message: 'Filtro rapido sem correspondencia para o RGA.' };
+}
+
+/**
+ * Apura elegibilidade a horas complementares usando presencas como fonte operacional e apresentacoes como confirmacao.
+ */
+function off_checkHoursEligibility_(rga, periodoRef, context) {
+  const manualFlag = off_normalizeHoursRightsFlag_(context && context.manualFlag ? context.manualFlag : '');
+  if (manualFlag) {
+    return {
+      eligible: manualFlag === OFF_CFG.VALUES.YES
+        ? true
+        : (manualFlag === OFF_CFG.VALUES.NO ? false : null),
+      sourceType: 'MANUAL',
+      sourceFlag: manualFlag,
+      presentedInPeriod: manualFlag === OFF_CFG.VALUES.YES ? true : null,
+      attendancePercent: null,
+      disciplinaryStatus: null,
+      status: manualFlag === OFF_CFG.VALUES.PENDENTE ? OFF_CFG.VALUES.ALERTA : OFF_CFG.VALUES.OK,
+      message: 'Elegibilidade de horas complementares definida manualmente na fila.',
+      basis: null,
+      details: {
+        context: context || null,
+      },
+    };
+  }
+
+  const presenceAssessment = off_tryAssessHoursEligibilityFromPresence_(rga, periodoRef);
+  if (!presenceAssessment.connected) {
+    return {
+      eligible: null,
+      sourceType: 'AUTOMATICO',
+      sourceFlag: OFF_CFG.VALUES.PENDENTE,
+      presentedInPeriod: null,
+      attendancePercent: null,
+      disciplinaryStatus: null,
+      status: OFF_CFG.VALUES.NAO_VERIFICADO,
+      message: presenceAssessment.message || 'Base de presencas indisponivel para apuracao automatica.',
+      basis: null,
+      details: {
+        presenceAssessment: presenceAssessment,
+        context: context || null,
+      },
+    };
+  }
+
+  const aggregate = off_checkPresentationAndFilePending_(rga, periodoRef, context);
+  const result = {
+    eligible: presenceAssessment.eligible,
+    sourceType: 'AUTOMATICO',
+    sourceFlag: presenceAssessment.eligible === true
+      ? OFF_CFG.VALUES.YES
+      : (presenceAssessment.eligible === false ? OFF_CFG.VALUES.NO : OFF_CFG.VALUES.PENDENTE),
+    presentedInPeriod: presenceAssessment.presentedInPeriod,
+    attendancePercent: presenceAssessment.attendancePercent,
+    disciplinaryStatus: presenceAssessment.disciplinaryStatus,
+    status: presenceAssessment.status,
+    message: presenceAssessment.message,
+    basis: presenceAssessment.basis,
+    details: {
+      presenceAssessment: presenceAssessment,
+      aggregate: aggregate,
+      context: context || null,
+    },
+  };
+
+  if (
+    result.presentedInPeriod !== true &&
+    aggregate.status === OFF_CFG.VALUES.OK &&
+    aggregate.hasPresentationInPeriod === true &&
+    aggregate.hasFuturePresentation !== true
+  ) {
+    result.presentedInPeriod = true;
+    if (result.eligible === null && off_isRegularDisciplinaryStatus_(result.disciplinaryStatus)) {
+      result.eligible = true;
+      result.sourceFlag = OFF_CFG.VALUES.YES;
+      result.message = off_joinMessage_(result.message, 'Apresentação confirmada pela base canônica de atividades.');
+      result.status = OFF_CFG.VALUES.OK;
+    }
+  }
+
+  if (result.eligible === true && aggregate.hasPendingFile === true) {
+    result.eligible = null;
+    result.sourceFlag = OFF_CFG.VALUES.PENDENTE;
+    result.status = OFF_CFG.VALUES.ALERTA;
+    result.message = off_joinMessage_(result.message, 'Arquivo pendente identificado; elegibilidade mantida como PENDENTE.');
+  }
+
+  return result;
+}
+
+/**
+ * Consulta a linha operacional de presencas e interpreta os principais indicadores do periodo.
+ */
+function off_tryAssessHoursEligibilityFromPresence_(rga, periodoRef) {
+  const sheet = off_getOptionalSheetByKey_(OFF_KEYS.ACTIVITIES_PRESENCAS) || off_findSheetByName_('Presencas');
+  if (!sheet) {
+    return {
+      connected: false,
+      message: 'Aba de presencas nao localizada para apuracao de horas complementares.',
+    };
+  }
+
+  const table = off_readSheetTable_(sheet);
+  const rgaCol = off_findColumn_(table.headerMap, OFF_CFG.ACTIVITIES_FIELDS.PRESENCE_RGA);
+  if (!rgaCol) {
+    return {
+      connected: false,
+      message: 'Base de presencas sem coluna RGA reconhecida.',
+    };
+  }
+
+  const semesterCol = off_findColumn_(table.headerMap, OFF_CFG.ACTIVITIES_FIELDS.PRESENCE_SEMESTER);
+  const presentedCol = off_findColumn_(table.headerMap, OFF_CFG.ACTIVITIES_FIELDS.PRESENTED_IN_PERIOD);
+  const forecastCol = off_findColumn_(table.headerMap, OFF_CFG.ACTIVITIES_FIELDS.PRESENTATION_FORECAST);
+  const attendanceCol = off_findColumn_(table.headerMap, OFF_CFG.ACTIVITIES_FIELDS.ATTENDANCE_PERCENT);
+  const totalActivitiesCol = off_findColumn_(table.headerMap, OFF_CFG.ACTIVITIES_FIELDS.TOTAL_ABSENCE_ACTIVITIES);
+  const absenceLimitCol = off_findColumn_(table.headerMap, OFF_CFG.ACTIVITIES_FIELDS.ABSENCE_LIMIT);
+  const netAbsencesCol = off_findColumn_(table.headerMap, OFF_CFG.ACTIVITIES_FIELDS.NET_ABSENCES);
+  const usagePercentCol = off_findColumn_(table.headerMap, OFF_CFG.ACTIVITIES_FIELDS.LIMIT_USAGE_PERCENT);
+  const disciplinaryCol = off_findColumn_(table.headerMap, OFF_CFG.ACTIVITIES_FIELDS.DISCIPLINARY_STATUS);
+
+  for (let i = 0; i < table.rows.length; i += 1) {
+    const row = table.rows[i];
+    if (String(row[rgaCol - 1] || '').trim() !== String(rga || '').trim()) {
+      continue;
+    }
+
+    if (periodoRef && semesterCol) {
+      const semesterValue = String(row[semesterCol - 1] || '').trim();
+      if (semesterValue && off_normalizeTextKey_(semesterValue) !== off_normalizeTextKey_(periodoRef)) {
+        continue;
+      }
+    }
+
+    const presentedFlag = presentedCol ? off_normalizeYesNoFlag_(row[presentedCol - 1]) : '';
+    const forecastFlag = forecastCol ? off_normalizeYesNoFlag_(row[forecastCol - 1]) : '';
+    const attendancePercent = attendanceCol ? off_parseNumber_(row[attendanceCol - 1]) : null;
+    const totalActivities = totalActivitiesCol ? off_parseNumber_(row[totalActivitiesCol - 1]) : null;
+    const absenceLimit = absenceLimitCol ? off_parseNumber_(row[absenceLimitCol - 1]) : null;
+    const netAbsences = netAbsencesCol ? off_parseNumber_(row[netAbsencesCol - 1]) : null;
+    const usagePercent = usagePercentCol ? off_parseNumber_(row[usagePercentCol - 1]) : null;
+    const disciplinaryStatus = disciplinaryCol ? String(row[disciplinaryCol - 1] || '').trim() : '';
+
+    const basis = {
+      apresentouNoPeriodo: presentedFlag || null,
+      previsaoApresentacaoNoPeriodo: forecastFlag || null,
+      percentualFrequencia: attendancePercent,
+      totalAtividadesQueContamFalta: totalActivities,
+      limiteFaltasPeriodo: absenceLimit,
+      faltasLiquidas: netAbsences,
+      percentualUsoLimite: usagePercent,
+      situacaoDisciplinar: disciplinaryStatus || null,
+    };
+
+    const presentedInPeriod = presentedFlag === OFF_CFG.VALUES.YES;
+    const attendanceRegular = off_isAttendanceWithinLimit_(attendancePercent, netAbsences, absenceLimit, usagePercent);
+    const disciplinaryRegular = off_isRegularDisciplinaryStatus_(disciplinaryStatus);
+
+    if (presentedFlag === OFF_CFG.VALUES.NO && forecastFlag === OFF_CFG.VALUES.NO) {
+      return {
+        connected: true,
+        eligible: false,
+        presentedInPeriod: false,
+        attendancePercent: attendancePercent,
+        disciplinaryStatus: disciplinaryStatus || null,
+        status: OFF_CFG.VALUES.OK,
+        message: 'Base de presenças indica que o membro não apresentou no período.',
+        basis: basis,
+      };
+    }
+
+    if (presentedFlag === OFF_CFG.VALUES.YES && attendanceRegular === true && disciplinaryRegular === true) {
+      return {
+        connected: true,
+        eligible: true,
+        presentedInPeriod: true,
+        attendancePercent: attendancePercent,
+        disciplinaryStatus: disciplinaryStatus || null,
+        status: OFF_CFG.VALUES.OK,
+        message: 'Base de presenças indica apresentação no período e situação regular para horas complementares.',
+        basis: basis,
+      };
+    }
+
+    if (presentedFlag === OFF_CFG.VALUES.YES && (attendanceRegular === false || disciplinaryRegular === false)) {
+      return {
+        connected: true,
+        eligible: false,
+        presentedInPeriod: true,
+        attendancePercent: attendancePercent,
+        disciplinaryStatus: disciplinaryStatus || null,
+        status: OFF_CFG.VALUES.OK,
+        message: 'Base de presenças indica apresentação, mas sem regularidade suficiente para horas complementares.',
+        basis: basis,
+      };
+    }
+
+    if (presentedFlag === OFF_CFG.VALUES.YES && off_isPendingDisciplinaryStatus_(disciplinaryStatus)) {
+      return {
+        connected: true,
+        eligible: null,
+        presentedInPeriod: true,
+        attendancePercent: attendancePercent,
+        disciplinaryStatus: disciplinaryStatus || null,
+        status: OFF_CFG.VALUES.ALERTA,
+        message: 'Base de presenças indica apresentação no período, mas há pendência a concluir.',
+        basis: basis,
+      };
+    }
+
+    return {
+      connected: true,
+      eligible: null,
+      presentedInPeriod: presentedInPeriod ? true : null,
+      attendancePercent: attendancePercent,
+      disciplinaryStatus: disciplinaryStatus || null,
+      status: OFF_CFG.VALUES.ALERTA,
+      message: 'Base de presenças localizada, mas sem dados suficientes para apuração automática conclusiva.',
+      basis: basis,
+    };
+  }
+
+  return {
+    connected: true,
+    eligible: null,
+    presentedInPeriod: null,
+    attendancePercent: null,
+    disciplinaryStatus: null,
+    status: OFF_CFG.VALUES.ALERTA,
+    message: 'RGA não localizado na base de presenças para apuração de horas complementares.',
+    basis: null,
+  };
+}
+
+/**
+ * Interpreta flags SIM/NAO de forma tolerante.
+ */
+function off_normalizeYesNoFlag_(value) {
+  const key = off_normalizeTextKey_(value || '');
+  if (key.indexOf('SIM') >= 0) {
+    return OFF_CFG.VALUES.YES;
+  }
+  if (key.indexOf('NAO') >= 0) {
+    return OFF_CFG.VALUES.NO;
+  }
+  return '';
+}
+
+/**
+ * Faz parse tolerante de numeros vindos de planilha.
+ */
+function off_parseNumber_(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  if (typeof value === 'number' && !isNaN(value)) {
+    return value;
+  }
+  const normalized = String(value)
+    .replace(/\s+/g, '')
+    .replace('%', '')
+    .replace(/\./g, '')
+    .replace(',', '.');
+  const parsed = Number(normalized);
+  return isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * Interpreta a situacao disciplinar com flexibilidade de nomenclatura.
+ */
+function off_isRegularDisciplinaryStatus_(status) {
+  const key = off_normalizeTextKey_(status || '');
+  if (!key) {
+    return null;
+  }
+  if (
+    key.indexOf('IRREGULAR') >= 0 ||
+    key.indexOf('INAPTO') >= 0 ||
+    key.indexOf('BLOQUE') >= 0 ||
+    key.indexOf('REPROV') >= 0
+  ) {
+    return false;
+  }
+  if (
+    key.indexOf('REGULAR') >= 0 ||
+    key.indexOf('APTO') >= 0 ||
+    key.indexOf('OK') >= 0 ||
+    key.indexOf('ADIMPL') >= 0
+  ) {
+    return true;
+  }
+  return null;
+}
+
+/**
+ * Identifica situações disciplinares ou administrativas que ainda dependem de conclusão posterior.
+ */
+function off_isPendingDisciplinaryStatus_(status) {
+  const key = off_normalizeTextKey_(status || '');
+  return key.indexOf('PEND') >= 0 || key.indexOf('ANALISE') >= 0 || key.indexOf('AGUARD') >= 0;
+}
+
+/**
+ * Interpreta frequencia/faltas usando a melhor combinacao de colunas disponivel.
+ */
+function off_isAttendanceWithinLimit_(attendancePercent, netAbsences, absenceLimit, usagePercent) {
+  if (netAbsences !== null && absenceLimit !== null) {
+    return netAbsences <= absenceLimit;
+  }
+  if (usagePercent !== null) {
+    return usagePercent <= 100;
+  }
+  if (attendancePercent !== null) {
+    return attendancePercent > 0;
+  }
+  return null;
 }
 
 /**
